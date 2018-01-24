@@ -12,6 +12,8 @@
 
       Read weather (from somewhere)
 
+      Now with BME280 support ...
+
 ----
  For a more accurate clock, it would be better to use the RTClib library.
  But this is just a demo.
@@ -35,6 +37,16 @@ code	color
 ----
  */
 
+#define jBME280
+
+#include <Arduino.h>
+
+#ifdef jBME280
+#include <BME280SPI.h>
+#include <Wire.h>
+#include <PubSubClient.h>
+#endif
+
 
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
@@ -56,6 +68,9 @@ const char *sday[] = {"???", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
 const char *smonth[] = {"???", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
+#ifdef jBME280
+BME280SPI bme;
+#endif
 
 TFT_eSPI tft = TFT_eSPI();  // Invoke library, pins defined in User_Setup.h
 
@@ -76,6 +91,63 @@ const char* emonpi="192.168.16.31";
 const char* emonpi_key="ac5917ee9dd4abf77baeb7118fd303dd";
 
 long t_last_emonpi_rd = 0;
+
+#ifdef jBME280
+
+
+WiFiClient espClient;
+
+PubSubClient client(espClient);
+long lastMsg = 0;
+char msg[100];
+int value = 0;
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+
+  // Switch on the LED if an 1 was received as first character
+  if ((char)payload[0] == '1') {
+    digitalWrite(BUILTIN_LED, LOW);   // Turn the LED on (Note that LOW is the voltage level
+    // but actually the LED is on; this is because
+    // it is acive low on the ESP-01)
+  } else {
+    digitalWrite(BUILTIN_LED, HIGH);  // Turn the LED off by making the voltage HIGH
+  }
+
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect("ESP8266Client")) {
+      Serial.println("connected");
+      // Once connected, publish an announcement...
+      //client.publish("outTopic", "hello world");
+      // ... and resubscribe
+      //client.subscribe("inTopic");
+    } else {
+      //***********************************************
+      // Not battery friendly ...
+      // **********************************************
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+
+#endif
 
 
 static uint8_t conv2d(const char* p) {
@@ -342,6 +414,39 @@ void setup(void){
     b_state = b_inactive;
   }
 
+#ifdef jBME280
+  pinMode(CS_BME, OUTPUT);
+  // Set the pin low to enable the sensor chip select
+  digitalWrite(CS_BME, 0);
+
+  // For BME280 ...
+  Wire.begin(D3,D4); // esp pins 0,2 c/w  10k pullups ...
+
+  while(!bme.begin())
+  {
+    Serial.println("Could not find BME280 sensor!");
+    delay(1000);
+  }
+
+  switch(bme.chipModel())
+  {
+     case BME280::ChipModel_BME280:
+       Serial.println("Found BME280 sensor! Success.");
+       break;
+     case BME280::ChipModel_BMP280:
+       Serial.println("Found BMP280 sensor! No Humidity available.");
+       break;
+     default:
+       Serial.println("Found UNKNOWN sensor! Error!");
+
+       // What do we do now ?
+  }
+
+  // Disable the BME sensor
+  digitalWrite(CS_BME, 1);
+
+#endif
+
 
 
   // Set up LCD ..
@@ -412,6 +517,64 @@ void loop(void)
 
     b_state = b_inactive;
   }
+
+#ifdef jBME280
+
+  float temp(NAN), hum(NAN), pres(NAN);
+
+  BME280::TempUnit tempUnit(BME280::TempUnit_Celsius);
+  BME280::PresUnit presUnit(BME280::PresUnit_Pa);
+
+
+  // connects to MQTT if not connected already
+  if (!client.connected())
+  {
+    reconnect();
+  }
+
+  // allows MQTT to connect properly ...
+  client.loop();
+
+  long now = millis();
+  if (now - lastMsg > 2000)
+  {
+    lastMsg = now;
+    ++value;
+
+    bme.read(pres, temp, hum, tempUnit, presUnit);
+
+    // No %f in 2.3.0 Arduino ...
+    // snprintf (msg, 75, "Weather @ #%ld (%ld)ms T: %f° H: %f%% P: %f",
+    //                         value, millis(), temp, hum, pres /100);
+
+    int t, h, p;
+
+    // two digits of precision
+    // so t is in hundredths of degrees, and h is hundredths of millibars
+    t = (int) (temp * 100.0);
+    h = (int) (hum * 100.0);
+    p = (int) pres;
+
+    // snprintf (msg, 75, "Weather @ #%ld (%ld)ms T: %d.%02d° H: %d.%02d%% P: %d.%02d",
+    //                         value, millis(),
+    //                         t / 100, t % 100,
+    //                         h / 100, h % 100,
+    //                         p / 100, p %100);
+    //
+    snprintf (msg, 75, "{ \"T\" : \"%d.%02d\", \"H\" : \"%d.%02d\", \"P\" : \"%d.%02d\" }",
+                            t / 100, t % 100,
+                            h / 100, h % 100,
+                            p / 100, p %100);
+
+
+
+    Serial.print("Publish message: "); Serial.println(msg);
+
+    // publish
+    client.publish("outTopic", msg);
+  }
+
+#endif  // jBME280
 
   // Once a second ?
   // Has the time changed? and/or has it even been set?
