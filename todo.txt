@@ -4,3 +4,5 @@
 
 * Need to check pinouts on D1 mini when using BME280 with TFT ...
 ** Have we run out of pins ?
+
+*** CHANGE D2 with D6 so that BME can work ! ***

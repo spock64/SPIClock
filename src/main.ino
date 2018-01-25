@@ -12,7 +12,7 @@
 
       Read weather (from somewhere)
 
-      Now with BME280 support ...
+      Now with BME280 support via SPI ...
 
 ----
  For a more accurate clock, it would be better to use the RTClib library.
@@ -46,9 +46,24 @@ code	color
 #include <Arduino.h>
 
 #ifdef jBME280
-#include <BME280SPI.h>
+
+#include <BME280Spi.h>
 #include <Wire.h>
 #include <PubSubClient.h>
+
+#define BME_CS D2 // or at least it should be ...
+
+BME280Spi::Settings bme_settings(BME_CS);
+BME280Spi bme(bme_settings);
+
+float temp(NAN), hum(NAN), pres(NAN);
+
+BME280::TempUnit tempUnit(BME280::TempUnit_Celsius);
+BME280::PresUnit presUnit(BME280::PresUnit_Pa);
+
+// in ms
+#define RD_SENSOR_INTERVAL 60000
+
 #endif
 
 
@@ -72,9 +87,6 @@ const char *sday[] = {"???", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
 const char *smonth[] = {"???", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
-#ifdef jBME280
-BME280SPI bme;
-#endif
 
 TFT_eSPI tft = TFT_eSPI();  // Invoke library, pins defined in User_Setup.h
 
@@ -102,9 +114,10 @@ long t_last_emonpi_rd = 0;
 WiFiClient espClient;
 
 PubSubClient client(espClient);
-long lastMsg = 0;
+long tlastSensorRd = 0;
 char msg[100];
-int value = 0;
+
+// *** MQTT *** ----------------------------------------------------------------
 
 void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
@@ -126,7 +139,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 }
 
-// *** MQTT *** ----------------------------------------------------------------
 
 void reconnect() {
   // Loop until we're reconnected
@@ -506,6 +518,45 @@ void switch_display_mode()
     display_mode = 0;
 }
 
+// *** BME functions *** -------------------------------------------------------
+
+#ifdef jBME280
+
+void readBME()
+{
+
+  bme.read(pres, temp, hum, tempUnit, presUnit);
+}
+
+void publishBME()
+{
+
+  int t, h, p;
+
+  // use two digits of precision
+  // so t is in hundredths of degrees, and h is hundredths of millibars
+  t = (int) (temp * 100.0);
+  h = (int) (hum * 100.0);
+  p = (int) pres;
+
+  // This is needed as arduino / ESP does not have %f format ...
+  snprintf (msg, 75, "{ \"T\" : \"%d.%02d\", \"H\" : \"%d.%02d\", \"P\" : \"%d.%02d\" }",
+                          t / 100, t % 100,
+                          h / 100, h % 100,
+                          p / 100, p %100);
+
+  Serial.print("Publish message: "); Serial.println(msg);
+
+#ifndef jNOWIFI
+  // publish
+  if(client.connected())
+    client.publish("outTopic", msg);
+#endif
+
+  }
+
+#endif
+
 // *** BUTTON HANDLING *** -----------------------------------------------------
 
 
@@ -578,39 +629,6 @@ void setup(void){
     b_state = b_inactive;
   }
 
-#ifdef jBME280
-  pinMode(CS_BME, OUTPUT);
-  // Set the pin low to enable the sensor chip select
-  digitalWrite(CS_BME, 0);
-
-  // For BME280 ...
-  Wire.begin(D3,D4); // esp pins 0,2 c/w  10k pullups ...
-
-  while(!bme.begin())
-  {
-    Serial.println("Could not find BME280 sensor!");
-    delay(1000);
-  }
-
-  switch(bme.chipModel())
-  {
-     case BME280::ChipModel_BME280:
-       Serial.println("Found BME280 sensor! Success.");
-       break;
-     case BME280::ChipModel_BMP280:
-       Serial.println("Found BMP280 sensor! No Humidity available.");
-       break;
-     default:
-       Serial.println("Found UNKNOWN sensor! Error!");
-
-       // What do we do now ?
-  }
-
-  // Disable the BME sensor
-  digitalWrite(CS_BME, 1);
-
-#endif // jBME280
-
 
 targetTime = millis() + 1000;
 
@@ -680,6 +698,35 @@ targetTime = millis() + 1000;
   setSyncInterval(300);
 #endif // jNOWIFI
 
+#ifdef jBME280
+
+  // TFT will already have initialised the SPI ...
+  //SPI.begin(); // How are pins defined? Does the TFT setup handle this?
+
+  while(!bme.begin())
+  {
+    Serial.println("Could not find BME280 sensor!");
+    delay(1000);
+  }
+
+  switch(bme.chipModel())
+  {
+     case BME280::ChipModel_BME280:
+       Serial.println("Found BME280 sensor! Success.");
+       break;
+     case BME280::ChipModel_BMP280:
+       Serial.println("Found BMP280 sensor! No Humidity available.");
+       break;
+     default:
+       Serial.println("Found UNKNOWN sensor! Error!");
+
+       // What do we do now ?
+  }
+
+#endif // jBME280
+
+
+
 }
 
 extern time_t prevDisplay;
@@ -688,6 +735,7 @@ extern time_t prevDisplay;
 
 void loop(void)
 {
+  int update_display = 0;
 
 #ifdef jNOWIFI
 #else
@@ -696,6 +744,7 @@ void loop(void)
 
   check_button();
 
+  // move between the display modes by button presses - triggers on button release
   if(b_state == b_up)
   {
     Serial.printf("Button up ... display mode was %s(%d)", displays[display_mode].name, display_mode);
@@ -706,67 +755,34 @@ void loop(void)
   }
 
 #ifdef jBME280
+#ifndef jNOWIFI
 
-  // *** HOW OFTEN SHOULD THIS BE DONE - SPLIT INTO FUNCTION !!! *** -----------
-
-  float temp(NAN), hum(NAN), pres(NAN);
-
-  BME280::TempUnit tempUnit(BME280::TempUnit_Celsius);
-  BME280::PresUnit presUnit(BME280::PresUnit_Pa);
-
-#ifdef jNOWIFI
-#else
-
+  // Try to keep the MQTT connection Open
+  // Would do this differently if we were on batteries...
   // connects to MQTT if not connected already
   if (!client.connected())
   {
     reconnect();
   }
 
-  // allows MQTT to connect properly ...
+  // allows MQTT connection to work properly ...
   client.loop();
+
 #endif // jNOWIFI
 
-  long now = millis();
-  if (now - lastMsg > 2000)
+
+  long tnow = millis();
+  if (tnow - tlastSensorRd > RD_SENSOR_INTERVAL)
   {
-    lastMsg = now;
-    ++value;
+    tlastSensorRd = tnow;
 
-    bme.read(pres, temp, hum, tempUnit, presUnit);
+    // Read sensor ...
+    readBME();
 
-    // No %f in 2.3.0 Arduino ...
-    // snprintf (msg, 75, "Weather @ #%ld (%ld)ms T: %f° H: %f%% P: %f",
-    //                         value, millis(), temp, hum, pres /100);
+    // Send to MQTT
+    publishBME();
 
-    int t, h, p;
-
-    // two digits of precision
-    // so t is in hundredths of degrees, and h is hundredths of millibars
-    t = (int) (temp * 100.0);
-    h = (int) (hum * 100.0);
-    p = (int) pres;
-
-    // snprintf (msg, 75, "Weather @ #%ld (%ld)ms T: %d.%02d° H: %d.%02d%% P: %d.%02d",
-    //                         value, millis(),
-    //                         t / 100, t % 100,
-    //                         h / 100, h % 100,
-    //                         p / 100, p %100);
-    //
-    snprintf (msg, 75, "{ \"T\" : \"%d.%02d\", \"H\" : \"%d.%02d\", \"P\" : \"%d.%02d\" }",
-                            t / 100, t % 100,
-                            h / 100, h % 100,
-                            p / 100, p %100);
-
-
-
-    Serial.print("Publish message: "); Serial.println(msg);
-
-#ifdef jNOWIFI
-#else
-    // publish
-    client.publish("outTopic", msg);
-#endif
+    update_display = 1;
 
   }
 
@@ -781,10 +797,15 @@ void loop(void)
 
       prevDisplay = now();
       digitalClockDisplay();
-      //update_lcd();
-      // Should look at the button - and also rotate displays ?
-      default_display();
+
+      update_display = 1;
     }
+  }
+
+  if(update_display)
+  {
+    // should call the active function from the display data struct ...
+    default_display();
   }
 
 }
