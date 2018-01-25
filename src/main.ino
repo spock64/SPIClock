@@ -175,159 +175,303 @@ ESP8266HTTPUpdateServer httpUpdater;
 // *** ORIGINAL DISPLAY UPDATER *** --------------------------------------------
 
 // Only called when the time is known ...
-void update_lcd()
+// void update_lcd()
+// {
+//
+//   // Anti flicker needed ??
+//   // Remember what was last displayed ...
+//
+//   // Day changed ...
+//   // Hour changed ...
+//   // Sec changed ...
+//   // Overwrite in Background colour, then redraw
+//   // Only draw the minimum !
+//
+//     // if (second()==0 || initial) {
+//       // initial = 0;
+//     tft.setTextColor(TFT_GREEN, TFT_BLACK);
+//     tft.setCursor (8, 52);
+//
+// // *** DRAW THE REAL DATE ***
+// // Each day !
+//     //tft.print(__DATE__); // This uses the standard ADAFruit small font
+//
+// // *** DRAW THE REAL WEATHER ***
+// // Say every hour ?
+//       //tft.setTextColor(TFT_BLUE, TFT_BLACK);
+//       //tft.drawCentreString("It is rainy",120,48,2); // Next size up font 2
+//
+//
+//     // Update digital time
+//     byte xpos = 6;
+//     byte ypos = 0;
+//
+//     // Every minute, redisplay the time
+//     // if (omm != mm) { // Only redraw every minute to minimise flicker
+//     if (omm != minute())
+//     { // Only redraw every minute to minimise flicker
+//       omm = minute();
+//       // Uncomment ONE of the next 2 lines, using the ghost image demonstrates text overlay as time is drawn over it
+//       tft.setTextColor(0x39C4, TFT_BLACK);  // Leave a 7 segment ghost image, comment out next line!
+//       //tft.setTextColor(TFT_BLACK, TFT_BLACK); // Set font colour to black to wipe image
+//       // Font 7 is to show a pseudo 7 segment display.
+//       // Font 7 only contains characters [space] 0 1 2 3 4 5 6 7 8 9 0 : .
+//       tft.drawString("88:88",xpos,ypos,7); // Overwrite the text to clear it
+//       tft.setTextColor(0xFBE0, TFT_BLACK); // Orange
+//
+//       // omm = mm;
+//
+//       if (hour()<10) xpos+= tft.drawChar('0',xpos,ypos,7);
+//       // if (hh<10) xpos+= tft.drawChar('0',xpos,ypos,7);
+// //      xpos+= tft.drawNumber(hh,xpos,ypos,7);
+//       xpos+= tft.drawNumber(hour(),xpos,ypos,7);
+//       xcolon=xpos;
+//       xpos+= tft.drawChar(':',xpos,ypos,7);
+// //      if (mm<10) xpos+= tft.drawChar('0',xpos,ypos,7);
+// //      tft.drawNumber(mm,xpos,ypos,7);
+//       if (minute()<10) xpos+= tft.drawChar('0',xpos,ypos,7);
+//       tft.drawNumber(minute(),xpos,ypos,7);
+//     }
+//
+// //    if (ss%2) { // Flash the colon
+//     if (second()%2)
+//     { // Flash the colon
+//       tft.setTextColor(0x39C4, TFT_BLACK);
+//       xpos+= tft.drawChar(':',xcolon,ypos,7);
+//       tft.setTextColor(0xFBE0, TFT_BLACK);
+//     }
+//     else {
+//       tft.drawChar(':',xcolon,ypos,7);
+//     }
+//
+//       // Erase the old text with a rectangle, the disadvantage of this method is increased display flicker
+//       tft.fillRect (0, 52, 160,10, TFT_BLACK);
+//       tft.setTextColor(TFT_WHITE);
+//
+//       char buffer[30];
+//       sprintf(buffer,"%02d:%02d:%02d %02d %s %d", hour(), minute(), second(), day(), smonth[month()], year());
+//       tft.drawString(buffer,8,52);
+//
+//       if (second() % 15 == 0)
+//       {
+//           // Every 15 seconds
+//
+//         // Pull some energy data ...
+//         char rq[100];
+//         int rc;
+//
+//         sprintf(rq, "http://%s/emoncms/feed/timevalue.json?id=1&apikey=%s", emonpi, emonpi_key);
+//         emon.begin(rq);
+//
+//         Serial.println("making http rq");
+//         Serial.println(rq);
+//
+//         rc = emon.GET();
+//
+//         if(rc>0)
+//         {
+//           Serial.printf("RC=%d/n", rc);
+//
+//           if(rc == HTTP_CODE_OK)
+//           {
+//             String payload = emon.getString();
+//
+//             Serial.print("Response ''");
+//             Serial.print(payload);
+//             Serial.println("'");
+//
+//             // Need ArduinoJson ...
+//             StaticJsonBuffer<200> jsonBuffer;
+//             JsonObject& root = jsonBuffer.parseObject(payload);
+//
+//             if (!root.success())
+//             {
+//               Serial.println("parseObject() failed");
+//               return;
+//             }
+//             else
+//             {
+//               int val = root["value"];
+//               long t = root["time"];
+//
+//               Serial.printf("Value read is %d from %ld\n", val, t_last_emonpi_rd);
+//
+//               // Update the screen ...
+//               char buf[20];
+//               sprintf(buf, "%d", val);
+//
+//               // Clear old value ...
+//               tft.fillRect (0, 75, 160,50, TFT_BLACK);
+//
+//               // Red text means that there's a problem with the emonpi !
+//               tft.setTextColor(
+//                       t != t_last_emonpi_rd ? TFT_WHITE : TFT_RED
+//                     );
+//               tft.drawString(buf,8,75, 7);
+//
+//               t_last_emonpi_rd = t;
+//
+//             }
+//           }
+//
+//         }
+//         else
+//           Serial.println("rq failed!");
+//
+//       }
+//
+//
+// }
+
+
+// *** I/F to emoncms ... ***
+
+int getEmonEnergy()
 {
+  // DUMMY FOR NOW
+  // Every 15 seconds
 
-  // Anti flicker needed ??
-  // Remember what was last displayed ...
+  // Pull some energy data ...
+  char rq[100];
+  int rc;
 
-  // Day changed ...
-  // Hour changed ...
-  // Sec changed ...
-  // Overwrite in Background colour, then redraw
-  // Only draw the minimum !
+  sprintf(rq, "http://%s/emoncms/feed/timevalue.json?id=1&apikey=%s", emonpi, emonpi_key);
+  emon.begin(rq);
 
-    // if (second()==0 || initial) {
-      // initial = 0;
-    tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    tft.setCursor (8, 52);
+  Serial.println("making http rq");
+  Serial.println(rq);
 
-// *** DRAW THE REAL DATE ***
-// Each day !
-    //tft.print(__DATE__); // This uses the standard ADAFruit small font
+  rc = emon.GET();
 
-// *** DRAW THE REAL WEATHER ***
-// Say every hour ?
-      //tft.setTextColor(TFT_BLUE, TFT_BLACK);
-      //tft.drawCentreString("It is rainy",120,48,2); // Next size up font 2
+  if(rc>0)
+  {
+    Serial.printf("RC=%d/n", rc);
 
+    if(rc == HTTP_CODE_OK)
+    {
+      String payload = emon.getString();
 
-    // Update digital time
-    byte xpos = 6;
-    byte ypos = 0;
+      Serial.print("Response ''");
+      Serial.print(payload);
+      Serial.println("'");
 
-    // Every minute, redisplay the time
-    // if (omm != mm) { // Only redraw every minute to minimise flicker
-    if (omm != minute())
-    { // Only redraw every minute to minimise flicker
-      omm = minute();
-      // Uncomment ONE of the next 2 lines, using the ghost image demonstrates text overlay as time is drawn over it
-      tft.setTextColor(0x39C4, TFT_BLACK);  // Leave a 7 segment ghost image, comment out next line!
-      //tft.setTextColor(TFT_BLACK, TFT_BLACK); // Set font colour to black to wipe image
-      // Font 7 is to show a pseudo 7 segment display.
-      // Font 7 only contains characters [space] 0 1 2 3 4 5 6 7 8 9 0 : .
-      tft.drawString("88:88",xpos,ypos,7); // Overwrite the text to clear it
-      tft.setTextColor(0xFBE0, TFT_BLACK); // Orange
+      // Need ArduinoJson ...
+      StaticJsonBuffer<200> jsonBuffer;
+      JsonObject& root = jsonBuffer.parseObject(payload);
 
-      // omm = mm;
-
-      if (hour()<10) xpos+= tft.drawChar('0',xpos,ypos,7);
-      // if (hh<10) xpos+= tft.drawChar('0',xpos,ypos,7);
-//      xpos+= tft.drawNumber(hh,xpos,ypos,7);
-      xpos+= tft.drawNumber(hour(),xpos,ypos,7);
-      xcolon=xpos;
-      xpos+= tft.drawChar(':',xpos,ypos,7);
-//      if (mm<10) xpos+= tft.drawChar('0',xpos,ypos,7);
-//      tft.drawNumber(mm,xpos,ypos,7);
-      if (minute()<10) xpos+= tft.drawChar('0',xpos,ypos,7);
-      tft.drawNumber(minute(),xpos,ypos,7);
-    }
-
-//    if (ss%2) { // Flash the colon
-    if (second()%2)
-    { // Flash the colon
-      tft.setTextColor(0x39C4, TFT_BLACK);
-      xpos+= tft.drawChar(':',xcolon,ypos,7);
-      tft.setTextColor(0xFBE0, TFT_BLACK);
-    }
-    else {
-      tft.drawChar(':',xcolon,ypos,7);
-    }
-
-      // Erase the old text with a rectangle, the disadvantage of this method is increased display flicker
-      tft.fillRect (0, 52, 160,10, TFT_BLACK);
-      tft.setTextColor(TFT_WHITE);
-
-      char buffer[30];
-      sprintf(buffer,"%02d:%02d:%02d %02d %s %d", hour(), minute(), second(), day(), smonth[month()], year());
-      tft.drawString(buffer,8,52);
-
-      if (second() % 15 == 0)
+      if (!root.success())
       {
-          // Every 15 seconds
+        Serial.println("parseObject() failed");
+        return -1;
+      }
+      else
+      {
+        int val = root["value"];
+        long t = root["time"];
 
-        // Pull some energy data ...
-        char rq[100];
-        int rc;
+        Serial.printf("Value read is %d from %ld\n", val, t_last_emonpi_rd);
 
-        sprintf(rq, "http://%s/emoncms/feed/timevalue.json?id=1&apikey=%s", emonpi, emonpi_key);
-        emon.begin(rq);
-
-        Serial.println("making http rq");
-        Serial.println(rq);
-
-        rc = emon.GET();
-
-        if(rc>0)
-        {
-          Serial.printf("RC=%d/n", rc);
-
-          if(rc == HTTP_CODE_OK)
-          {
-            String payload = emon.getString();
-
-            Serial.print("Response ''");
-            Serial.print(payload);
-            Serial.println("'");
-
-            // Need ArduinoJson ...
-            StaticJsonBuffer<200> jsonBuffer;
-            JsonObject& root = jsonBuffer.parseObject(payload);
-
-            if (!root.success())
-            {
-              Serial.println("parseObject() failed");
-              return;
-            }
-            else
-            {
-              int val = root["value"];
-              long t = root["time"];
-
-              Serial.printf("Value read is %d from %ld\n", val, t_last_emonpi_rd);
-
-              // Update the screen ...
-              char buf[20];
-              sprintf(buf, "%d", val);
-
-              // Clear old value ...
-              tft.fillRect (0, 75, 160,50, TFT_BLACK);
-
-              // Red text means that there's a problem with the emonpi !
-              tft.setTextColor(
-                      t != t_last_emonpi_rd ? TFT_WHITE : TFT_RED
-                    );
-              tft.drawString(buf,8,75, 7);
-
-              t_last_emonpi_rd = t;
-
-            }
-          }
-
-        }
-        else
-          Serial.println("rq failed!");
+        t_last_emonpi_rd = t;
 
       }
+    }
 
+  }
+  else
+    Serial.println("rq failed!");
 
+  // endstop ...
+  return -1;
 }
 
 // *** DISPLAY HANDLERS *** ----------------------------------------------------
 
+
 void default_display()
 {
+  // Called every second ?
   Serial.printf("Default display");
+
+  tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  tft.setCursor (8, 52);
+
+  // Update digital time
+  byte xpos = 6;
+  byte ypos = 0;
+
+  // Every minute, redisplay the time
+  // Only redraw every minute to minimise flicker
+  if (omm != minute())
+  {
+    omm = minute();
+    // Uncomment ONE of the next 2 lines, using the ghost image demonstrates text overlay as time is drawn over it
+    tft.setTextColor(0x39C4, TFT_BLACK);  // Leave a 7 segment ghost image, comment out next line!
+    //tft.setTextColor(TFT_BLACK, TFT_BLACK); // Set font colour to black to wipe image
+    // Font 7 is to show a pseudo 7 segment display.
+    // Font 7 only contains characters [space] 0 1 2 3 4 5 6 7 8 9 0 : .
+    tft.drawString("88:88",xpos,ypos,7); // Overwrite the text to clear it
+    tft.setTextColor(0xFBE0, TFT_BLACK); // Orange
+
+    if (hour()<10) xpos+= tft.drawChar('0',xpos,ypos,7);
+    xpos+= tft.drawNumber(hour(),xpos,ypos,7);
+    xcolon=xpos;
+    xpos+= tft.drawChar(':',xpos,ypos,7);
+    if (minute()<10) xpos+= tft.drawChar('0',xpos,ypos,7);
+    tft.drawNumber(minute(),xpos,ypos,7);
+  }
+
+  // Flash the colon
+  if (second()%2)
+  { // Flash the colon
+    tft.setTextColor(0x39C4, TFT_BLACK);
+    xpos+= tft.drawChar(':',xcolon,ypos,7);
+    tft.setTextColor(0xFBE0, TFT_BLACK);
+  }
+  else {
+    tft.drawChar(':',xcolon,ypos,7);
+  }
+
+  // Erase the old text with a rectangle, the disadvantage of this method is increased display flicker
+  tft.fillRect (0, 52, 160,10, TFT_BLACK);
+  tft.setTextColor(TFT_WHITE);
+
+  char buffer[30];
+  sprintf(buffer,"%02d:%02d:%02d %02d %s %d", hour(), minute(), second(), day(), smonth[month()], year());
+  tft.drawString(buffer,8,52);
+
+  if (second() % 15 == 0)
+  {
+    static int curKW = 1000; // initialiser only needed for NOWIFI mode !
+
+#ifdef jNOWIFI
+    // Dummy energy value
+    curKW++;
+#else
+    if((curKW = getEmonEnergy()) == -1)
+    {
+      // Could not get the data from emoncms
+      // TODO: What to do?
+    }
+    else
+    {
+
+#endif // jNOWIFI
+      // Update the screen ...
+      char buf[20];
+      sprintf(buf, "%d", curKW);
+
+      // Clear old value & redraw ...
+      tft.fillRect (0, 75, 160,50, TFT_BLACK);
+      tft.setTextColor(TFT_WHITE);
+      tft.drawString(buf,8,75, 7);
+
+#ifndef jNOWIFI
+    }
+#endif // jNOWIFI
+
+  }
+
+
 }
 
 void setup_display()
@@ -423,13 +567,14 @@ void setup(void){
 
   digitalWrite(BUILTIN_LED, 1); //off
 
-  if(digitalRead(BUTTON))
+  if(!digitalRead(BUTTON))
   {
-    printf("Button pressed on load\n");
+    printf("Button DN on load\n");
     b_state = b_down;
   }
   else
   {
+    printf("Button UP on load\n");
     b_state = b_inactive;
   }
 
@@ -485,7 +630,7 @@ targetTime = millis() + 1000;
   WiFi.mode(WIFI_OFF);
 
   // Frig time
-  setTime(19,0,0,6,3,1964);
+  setTime(11,0,0,4,5,1999);
   // Set AP mode
   // Set up portal ?
   // Set up updater ?
@@ -636,7 +781,9 @@ void loop(void)
 
       prevDisplay = now();
       digitalClockDisplay();
-      update_lcd();
+      //update_lcd();
+      // Should look at the button - and also rotate displays ?
+      default_display();
     }
   }
 

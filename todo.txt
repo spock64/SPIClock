@@ -1,0 +1,6 @@
+*** TODO ***
+
+25/1/18
+
+* Need to check pinouts on D1 mini when using BME280 with TFT ...
+** Have we run out of pins ?
