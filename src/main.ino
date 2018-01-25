@@ -37,7 +37,11 @@ code	color
 ----
  */
 
-#define jBME280
+// Define this to avoid connecting to WiFi
+// useful for developing when travelling
+// Instead put up a portal on the default AP
+#define jNOWIFI
+//#define jBME280
 
 #include <Arduino.h>
 
@@ -122,6 +126,8 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 }
 
+// *** MQTT *** ----------------------------------------------------------------
+
 void reconnect() {
   // Loop until we're reconnected
   while (!client.connected()) {
@@ -166,6 +172,7 @@ const char* password = "*jaylm123456!";
 ESP8266WebServer httpServer(80);
 ESP8266HTTPUpdateServer httpUpdater;
 
+// *** ORIGINAL DISPLAY UPDATER *** --------------------------------------------
 
 // Only called when the time is known ...
 void update_lcd()
@@ -316,6 +323,8 @@ void update_lcd()
 
 }
 
+// *** DISPLAY HANDLERS *** ----------------------------------------------------
+
 void default_display()
 {
   Serial.printf("Default display");
@@ -326,7 +335,8 @@ void setup_display()
   Serial.printf("Setup display");
 }
 
-// Display Modes
+// *** DISPLAY MODE & SWITCHING *** --------------------------------------------
+
 int display_mode = 0;
 
 typedef void (*display_func)();
@@ -352,8 +362,8 @@ void switch_display_mode()
     display_mode = 0;
 }
 
-extern WiFiUDP Udp;
-extern unsigned int localPort;
+// *** BUTTON HANDLING *** -----------------------------------------------------
+
 
 typedef enum {b_inactive, b_down, b_up} b_state_t;
 
@@ -391,12 +401,21 @@ void check_button(){
   }
 }
 
+extern WiFiUDP Udp;
+extern unsigned int localPort;
+
+// *** SETUP *** ---------------------------------------------------------------
+
 void setup(void){
 
 // Debug ...
   Serial.begin(115200);
   Serial.println();
   Serial.println("Booting ...");
+
+#ifdef jNOWIFI
+  Serial.println("*** NO WIFI - WILL NOT ENTER STA MODE ***");
+#endif
 
   // Button
   pinMode(BUTTON, INPUT);
@@ -445,9 +464,10 @@ void setup(void){
   // Disable the BME sensor
   digitalWrite(CS_BME, 1);
 
-#endif
+#endif // jBME280
 
 
+targetTime = millis() + 1000;
 
   // Set up LCD ..
   tft.init();
@@ -456,15 +476,30 @@ void setup(void){
 
   tft.setTextColor(TFT_YELLOW, TFT_BLACK); // Note: the new fonts do not draw the background colour
 
+#ifdef jNOWIFI
+  // development
+
+  tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  tft.setCursor (8, 0);
+  tft.print("*** DEV WiFi OFF ***"); // standard ADAFruit small font
+  WiFi.mode(WIFI_OFF);
+
+  // Frig time
+  setTime(19,0,0,6,3,1964);
+  // Set AP mode
+  // Set up portal ?
+  // Set up updater ?
+
+#else
+  // production
+
   tft.setTextColor(TFT_GREEN, TFT_BLACK);
   tft.setCursor (8, 0);
   tft.print("Starting WiFi ..."); // standard ADAFruit small font
 
-
-  targetTime = millis() + 1000;
-
   WiFi.mode(WIFI_AP_STA);
   WiFi.begin(ssid, password);
+
 
   // Should we wait here or just poll in the loop ?
   while(WiFi.waitForConnectResult() != WL_CONNECTED){
@@ -477,8 +512,7 @@ void setup(void){
   tft.setCursor (8, 16);
   tft.print("Getting the time ..."); // standard ADAFruit small font
 
-
-
+  // *** SET UP UPDATER SERVER ***
   MDNS.begin(host);
 
   httpUpdater.setup(&httpServer);
@@ -496,17 +530,25 @@ void setup(void){
   Serial.println(Udp.localPort());
   Serial.println("waiting for sync");
 
+  // How does this work then ?
   setSyncProvider(getNtpTime);
   setSyncInterval(300);
+#endif // jNOWIFI
 
 }
 
 extern time_t prevDisplay;
 
+// *** MAIN LOOP *** -----------------------------------------------------------
+
 void loop(void)
 {
 
+#ifdef jNOWIFI
+#else
   httpServer.handleClient();
+#endif
+
   check_button();
 
   if(b_state == b_up)
@@ -520,11 +562,15 @@ void loop(void)
 
 #ifdef jBME280
 
+  // *** HOW OFTEN SHOULD THIS BE DONE - SPLIT INTO FUNCTION !!! *** -----------
+
   float temp(NAN), hum(NAN), pres(NAN);
 
   BME280::TempUnit tempUnit(BME280::TempUnit_Celsius);
   BME280::PresUnit presUnit(BME280::PresUnit_Pa);
 
+#ifdef jNOWIFI
+#else
 
   // connects to MQTT if not connected already
   if (!client.connected())
@@ -534,6 +580,7 @@ void loop(void)
 
   // allows MQTT to connect properly ...
   client.loop();
+#endif // jNOWIFI
 
   long now = millis();
   if (now - lastMsg > 2000)
@@ -570,20 +617,27 @@ void loop(void)
 
     Serial.print("Publish message: "); Serial.println(msg);
 
+#ifdef jNOWIFI
+#else
     // publish
     client.publish("outTopic", msg);
+#endif
+
   }
 
 #endif  // jBME280
 
-  // Once a second ?
-  // Has the time changed? and/or has it even been set?
+  // *** now() returns the time in seconds - so this is "every second"
   if (timeStatus() != timeNotSet)
   {
-    if (now() != prevDisplay) { //update the display only if time has changed
+    if (now() != prevDisplay)
+    { //update the display only if time has changed
+      extern void digitalClockDisplay();
+
       prevDisplay = now();
       digitalClockDisplay();
       update_lcd();
     }
   }
+
 }
