@@ -555,13 +555,13 @@ void temperature_display()
   }
 
   // Pressure, Humidity ...
-  snprintf (msg, 75, "H %d.%02d, P %d.%02d",
+  snprintf (msg, 75, "RH %d.%02d %%, P %d.%02d Pa",
                           h / 100, h % 100,
                           p / 100, p %100);
 
   tft.fillRect (0, 52, 160,10, TFT_BLACK);
   tft.setTextColor(TFT_WHITE);
-  tft.drawString(msg,8,52);                      
+  tft.drawString(msg,8,52);
 
 }
 
