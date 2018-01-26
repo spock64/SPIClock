@@ -41,7 +41,7 @@ code	color
 // useful for developing when travelling
 // Instead put up a portal on the default AP
 #define jNOWIFI
-//#define jBME280
+#define jBME280
 
 #include <Arduino.h>
 
@@ -398,6 +398,7 @@ int getEmonEnergy()
 
 // *** DISPLAY HANDLERS *** ----------------------------------------------------
 
+int redraw_display = 1;
 
 void default_display()
 {
@@ -413,7 +414,9 @@ void default_display()
 
   // Every minute, redisplay the time
   // Only redraw every minute to minimise flicker
-  if (omm != minute())
+  if ((omm != minute()) ||
+        redraw_display
+    )
   {
     omm = minute();
     // Uncomment ONE of the next 2 lines, using the ghost image demonstrates text overlay as time is drawn over it
@@ -451,7 +454,9 @@ void default_display()
   sprintf(buffer,"%02d:%02d:%02d %02d %s %d", hour(), minute(), second(), day(), smonth[month()], year());
   tft.drawString(buffer,8,52);
 
-  if (second() % 15 == 0)
+  if ((second() % 15 == 0) ||
+        redraw_display
+      )
   {
     static int curKW = 1000; // initialiser only needed for NOWIFI mode !
 
@@ -483,12 +488,112 @@ void default_display()
 
   }
 
-
+  redraw_display = 0;
 }
 
 void setup_display()
 {
   Serial.printf("Setup display");
+
+  if(redraw_display)
+  {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_YELLOW, TFT_BLACK); // Note: the new fonts do not draw the background colour
+    tft.setCursor (8, 0);
+    tft.print("*** Setup display ***"); // standard ADAFruit small font
+
+    redraw_display = 0;
+  }
+
+}
+
+void temperature_display()
+{
+  static int last_temp = 0;
+  int t, h, p;
+
+  Serial.printf("Temperature display");
+
+  if(redraw_display)
+  {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK); // Note: the new fonts do not draw the background colour
+
+    last_temp = 0;      // Force redraw of temperature below ...
+    redraw_display = 0;
+  }
+
+
+  // use two digits of precision
+  // so t is in hundredths of degrees, and h is hundredths of millibars
+  t = (int) (temp * 100.0);
+  h = (int) (hum * 100.0);
+  p = (int) pres;
+
+  if(t != last_temp)
+  {
+
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setCursor (8, 52);
+
+    // Update digital time
+    byte xpos = 6;
+    byte ypos = 0;
+
+    tft.setTextColor(0x39C4, TFT_BLACK);
+    tft.drawString("88:88",xpos,ypos,7);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+
+    if (t < 1000) xpos+= tft.drawChar(' ',xpos,ypos,7);
+    xpos+= tft.drawNumber(t / 100,xpos,ypos,7);
+    xcolon=xpos;
+    xpos+= tft.drawChar('.',xpos,ypos,7);
+    if ((t % 100)<10) xpos+= tft.drawChar('0',xpos,ypos,7);
+    tft.drawNumber(t % 100,xpos,ypos,7);
+
+    last_temp = t;
+  }
+
+  // Pressure, Humidity ...
+  snprintf (msg, 75, "H %d.%02d, P %d.%02d",
+                          h / 100, h % 100,
+                          p / 100, p %100);
+
+  tft.fillRect (0, 52, 160,10, TFT_BLACK);
+  tft.setTextColor(TFT_WHITE);
+  tft.drawString(msg,8,52);                      
+
+}
+
+void other_display()
+{
+  Serial.printf("Other display");
+
+  if(redraw_display)
+  {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_RED, TFT_BLACK); // Note: the new fonts do not draw the background colour
+    tft.setCursor (8, 0);
+    tft.print("*** Other display ***"); // standard ADAFruit small font
+    redraw_display = 0;
+  }
+
+
+}
+
+void last_display()
+{
+  Serial.printf("Last display");
+
+  if(redraw_display)
+  {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_BLUE, TFT_BLACK); // Note: the new fonts do not draw the background colour
+    tft.setCursor (8, 0);
+    tft.print("*** Last display ***"); // standard ADAFruit small font
+    redraw_display = 0;
+  }
+
 }
 
 // *** DISPLAY MODE & SWITCHING *** --------------------------------------------
@@ -506,7 +611,9 @@ typedef struct {
 // Dodgy / cowboy / horrific logic will increment the state during start up ...
 display_mode_t displays[] = { {"Setup", setup_display},
                               {"Default", default_display},
-
+                              {"Temperature", temperature_display},
+                              {"Other", other_display},
+                              {"Last", last_display}
                             };
 
 // responds to the button ...
@@ -516,6 +623,14 @@ void switch_display_mode()
     display_mode++;
   else
     display_mode = 0;
+
+  redraw_display = 1;
+}
+
+void refresh_display()
+{
+  // call the current display handler ...
+  (displays[display_mode].func)();
 }
 
 // *** BME functions *** -------------------------------------------------------
@@ -702,6 +817,7 @@ targetTime = millis() + 1000;
 
   // TFT will already have initialised the SPI ...
   //SPI.begin(); // How are pins defined? Does the TFT setup handle this?
+  // SPI.begin is done in the TFT_eSPI constructor ...
 
   while(!bme.begin())
   {
@@ -721,7 +837,12 @@ targetTime = millis() + 1000;
        Serial.println("Found UNKNOWN sensor! Error!");
 
        // What do we do now ?
+
   }
+
+  // force a read first time through the loop ...
+  // A bit of an odd way of diong it I know ...
+  tlastSensorRd = millis() - RD_SENSOR_INTERVAL -1;
 
 #endif // jBME280
 
@@ -804,8 +925,14 @@ void loop(void)
 
   if(update_display)
   {
-    // should call the active function from the display data struct ...
-    default_display();
+    // switch displays every 5 seconds ... just for fun ...
+    if((now() % 5) == 0)
+      switch_display_mode();
+
+    // Call the active displays
+    refresh_display();
+
+    update_display = 0;
   }
 
 }

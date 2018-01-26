@@ -2,7 +2,15 @@
 
 25/1/18
 
-* Need to check pinouts on D1 mini when using BME280 with TFT ...
-** Have we run out of pins ?
-
 *** CHANGE D2 with D6 so that BME can work ! ***
+*** DONE :-) It's working
+
+* Config capability
+
+* upload capability
+
+* PIN code to access ?
+
+* Initial temp / press/ humid displays - DONE
+
+* Initial switching displays etc. - DONE
